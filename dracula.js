@@ -557,67 +557,153 @@
     })();
   </script>
   `;
-  function renderTree(value, path, depth, maxDepth, maxArrayItems) {
-    const t = typeOf(value);
+  function displayLabel(path) {
+    if (path === "$") return "root";
+  
+ 
+    let p = path.startsWith("$.") ? path.slice(2) : path.startsWith("$") ? path.slice(1) : path;
+    const tokens = [];
+    let buf = "";
+  
+    for (let i = 0; i < p.length; i++) {
+      const ch = p[i];
+  
+      if (ch === ".") {
+        if (buf) { tokens.push(buf); buf = ""; }
+        continue;
+      }
+  
+      if (ch === "[") {
+        if (buf) { tokens.push(buf); buf = ""; }
+        let j = i;
+        let br = "";
+        while (j < p.length && p[j] !== "]") { br += p[j]; j++; }
+        if (j < p.length) br += "]";
+        tokens.push(br);
+        i = j;
+        continue;
+      }
+  
+      buf += ch;
+    }
+  
+    if (buf) tokens.push(buf);
+  
+    const last = tokens[tokens.length - 1] || "root";
+  
 
-    // stop runaway
-    if (depth > maxDepth) {
-      return `
+    return last;
+  }
+
+ function renderTree(value, path, depth, maxDepth, maxArrayItems) {
+  const t = typeOf(value);
+  const label = displayLabel(path);
+
+  // stop runaway
+  if (depth > maxDepth) {
+    return `
+      <div class="node" data-search="${escapeHtml(path)}" data-leaf="1">
+        <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)} <span class="badge b-err">maxDepth</span></div>
+        <div class="val"><span class="muted italic">Depth limit reached</span></div>
+      </div>`;
+  }
+
+  // Leaf node
+  if (t !== "object" && t !== "array") {
+    const fv = formatValue(value);
+    const search = `${path} ${t} ${fv.raw}`;
+
+    return `
+      <div class="node" data-search="${escapeHtml(search)}" data-leaf="1">
+        <div class="kv">
+          <div class="key" title="${escapeHtml(path)}">
+            ${escapeHtml(label)}
+            <span class="badge b-${t === "string" ? "str" : t === "null" ? "null" : t === "boolean" ? "bool" : t === "number" ? "num" : t === "date" ? "date" : "obj"}">${escapeHtml(t)}</span>
+          </div>
+          <div class="val">${fv.html}</div>
+        </div>
+      </div>`;
+  }
+
+  // Array
+  if (t === "array") {
+    const len = value.length;
+    const title = (path === "$") ? `root [${len}]` : `${label} [${len}]`;
+
+    let childrenHtml = "";
+    const limit = Math.min(len, maxArrayItems);
+
+    for (let i = 0; i < limit; i++) {
+      const childPath = `${path}[${i}]`;
+      childrenHtml += renderTree(value[i], childPath, depth + 1, maxDepth, maxArrayItems);
+    }
+
+    if (len > limit) {
+      childrenHtml += `
         <div class="node" data-search="${escapeHtml(path)}" data-leaf="1">
-          <div class="key">${escapeHtml(path)} <span class="badge b-err">maxDepth</span></div>
-          <div class="val"><span class="muted italic">Depth limit reached</span></div>
+          <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)} <span class="badge b-arr">array</span></div>
+          <div class="val"><span class="muted italic">Showing ${limit}/${len} items (increase maxArrayItems in script)</span></div>
         </div>`;
     }
 
-    // Leaf node
-    if (t !== "object" && t !== "array") {
-      const fv = formatValue(value);
-      const search = `${path} ${t} ${fv.raw}`;
-      return `
-        <div class="node" data-search="${escapeHtml(search)}" data-leaf="1">
-          <div class="kv">
-            <div class="key">${escapeHtml(path)} <span class="badge b-${t === "string" ? "str" : t === "null" ? "null" : t === "boolean" ? "bool" : t === "number" ? "num" : t === "date" ? "date" : "obj"}">${escapeHtml(t)}</span></div>
-            <div class="val">${fv.html}</div>
-          </div>
-        </div>`;
-    }
+    const search = `${path} array ${len}`;
 
-    // Container node
-    if (t === "array") {
-      const len = value.length;
-      const title = `${path} [${len}]`;
-      let childrenHtml = "";
-      const limit = Math.min(len, maxArrayItems);
-      for (let i = 0; i < limit; i++) {
-        const childPath = `${path}[${i}]`;
-        childrenHtml += renderTree(value[i], childPath, depth + 1, maxDepth, maxArrayItems);
-      }
-      if (len > limit) {
-        childrenHtml += `
-          <div class="node" data-search="${escapeHtml(path)}" data-leaf="1">
-            <div class="key">${escapeHtml(path)} <span class="badge b-arr">array</span></div>
-            <div class="val"><span class="muted italic">Showing ${limit}/${len} items (increase maxArrayItems in script)</span></div>
-          </div>`;
-      }
-
-      const search = `${path} array ${len}`;
-      return `
-        <details data-search="${escapeHtml(search)}">
-          <summary>
-            <div class="sum-left">
-              <span class="caret"></span>
-              <span class="sum-title">${escapeHtml(title)}</span>
-            </div>
-            <div class="sum-meta">
-              <span class="badge b-arr">array</span>
-              <span class="badge">${len} items</span>
-            </div>
-          </summary>
-          <div style="margin-top:10px;">
-            ${childrenHtml || `<div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1"><div class="key">${escapeHtml(path)}</div><div class="val"><span class="muted italic">Empty array</span></div></div>`}
+    return `
+      <details data-search="${escapeHtml(search)}">
+        <summary title="${escapeHtml(path)}">
+          <div class="sum-left">
+            <span class="caret"></span>
+            <span class="sum-title">${escapeHtml(title)}</span>
           </div>
-        </details>`;
-    }
+          <div class="sum-meta">
+            <span class="badge b-arr">array</span>
+            <span class="badge">${len} items</span>
+          </div>
+        </summary>
+        <div style="margin-top:10px;">
+          ${childrenHtml || `
+            <div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1">
+              <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)}</div>
+              <div class="val"><span class="muted italic">Empty array</span></div>
+            </div>`}
+        </div>
+      </details>`;
+  }
+
+  // Object
+  const keys = Object.keys(value);
+  const title = (path === "$") ? `root {${keys.length}}` : `${label} {${keys.length}}`;
+
+  let childrenHtml = "";
+  for (const k of keys) {
+    const childPath = path === "$" ? `$.${k}` : `${path}.${k}`;
+    childrenHtml += renderTree(value[k], childPath, depth + 1, maxDepth, maxArrayItems);
+  }
+
+  const search = `${path} object ${keys.join(" ")}`;
+
+  return `
+    <details data-search="${escapeHtml(search)}" open>
+      <summary title="${escapeHtml(path)}">
+        <div class="sum-left">
+          <span class="caret"></span>
+          <span class="sum-title">${escapeHtml(title)}</span>
+        </div>
+        <div class="sum-meta">
+          <span class="badge b-obj">object</span>
+          <span class="badge">${keys.length} keys</span>
+        </div>
+      </summary>
+      <div style="margin-top:10px;">
+        ${childrenHtml || `
+          <div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1">
+            <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)}</div>
+            <div class="val"><span class="muted italic">Empty object</span></div>
+          </div>`}
+      </div>
+    </details>`;
+}
+
 
     // object
     const keys = Object.keys(value);
