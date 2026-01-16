@@ -12,14 +12,11 @@
   function tryParseJson() {
     const contentType = safeGetHeader("Content-Type");
     const raw = pm.response.text();
-
     if (!isLikelyJson(contentType, raw)) return { ok: false, raw, contentType };
-
     try {
       const json = pm.response.json();
       return { ok: true, json, raw, contentType };
     } catch (e) {
-      // sometimes header says json but body isn't valid
       return { ok: false, raw, contentType, error: String(e) };
     }
   }
@@ -33,7 +30,6 @@
     if (t === "boolean") return "boolean";
     if (t === "string") {
       const s = v;
-      // quick timestamp-ish detection
       if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(s) || !isNaN(Date.parse(s))) return "date";
       if (/^https?:\/\/\S+$/i.test(s)) return "url";
       return "string";
@@ -88,12 +84,10 @@
   function countNodes(value, limit = 5000) {
     let count = 0;
     const seen = new Set();
-
     function walk(v) {
       if (count >= limit) return;
       const t = typeOf(v);
       count++;
-
       if (t === "object" || t === "array") {
         if (v && typeof v === "object") {
           if (seen.has(v)) return;
@@ -110,10 +104,37 @@
     return count;
   }
 
+  function displayLabel(path) {
+    if (path === "$") return "root";
+    let p = path.startsWith("$.") ? path.slice(2) : path.startsWith("$") ? path.slice(1) : path;
+    const tokens = [];
+    let buf = "";
+    for (let i = 0; i < p.length; i++) {
+      const ch = p[i];
+      if (ch === ".") {
+        if (buf) { tokens.push(buf); buf = ""; }
+        continue;
+      }
+      if (ch === "[") {
+        if (buf) { tokens.push(buf); buf = ""; }
+        let j = i;
+        let br = "";
+        while (j < p.length && p[j] !== "]") { br += p[j]; j++; }
+        if (j < p.length) br += "]";
+        tokens.push(br);
+        i = j;
+        continue;
+      }
+      buf += ch;
+    }
+    if (buf) tokens.push(buf);
+    return tokens[tokens.length - 1] || "root";
+  }
+
   const template = `
   <style>
     :root{
-      --bg0:#0f111a;      /* Dracula-ish */
+      --bg0:#0f111a;
       --bg1:#171a26;
       --bg2:#1f2333;
       --card:#1b1f2e;
@@ -133,7 +154,6 @@
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial;
     }
-
     *{ box-sizing:border-box; }
     body{
       margin:0;
@@ -145,9 +165,7 @@
                   linear-gradient(180deg, var(--bg0), var(--bg1));
       min-height:100vh;
     }
-
     .container{ max-width: 1100px; margin:0 auto; }
-
     .header{
       background: linear-gradient(180deg, rgba(31,35,51,0.9), rgba(23,26,38,0.9));
       border:1px solid var(--border);
@@ -157,7 +175,6 @@
       overflow:hidden;
       position:relative;
     }
-
     .header::before{
       content:"";
       position:absolute;
@@ -167,7 +184,6 @@
       opacity:0.35;
       z-index:0;
     }
-
     .header-inner{ position:relative; z-index:1; display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start; justify-content:space-between;}
     .title{ display:flex; flex-direction:column; gap:6px; }
     .title h1{
@@ -186,7 +202,6 @@
       opacity:0.95;
       word-break: break-word;
     }
-
     .controls{
       display:flex;
       gap:10px;
@@ -194,7 +209,6 @@
       flex-wrap:wrap;
       justify-content:flex-end;
     }
-
     .search{
       display:flex;
       align-items:center;
@@ -227,14 +241,12 @@
       user-select:none;
     }
     .btn:hover{ border-color: rgba(139,233,253,0.6); box-shadow: 0 0 0 3px rgba(139,233,253,0.12); }
-
     .grid{
       margin-top: 14px;
       display:grid;
       grid-template-columns: 1fr;
       gap: 14px;
     }
-
     .card{
       background: linear-gradient(180deg, rgba(27,31,46,0.92), rgba(23,26,38,0.92));
       border:1px solid var(--border);
@@ -242,7 +254,6 @@
       box-shadow: var(--shadow);
       overflow:hidden;
     }
-
     .card-head{
       padding: 14px 16px;
       border-bottom: 1px solid rgba(42,47,69,0.9);
@@ -252,7 +263,6 @@
       gap:12px;
       flex-wrap:wrap;
     }
-
     .card-title{
       margin:0;
       font-size: 14px;
@@ -263,14 +273,12 @@
       align-items:center;
       gap:10px;
     }
-
     .summary{
       display:flex;
       gap:10px;
       flex-wrap:wrap;
       align-items:center;
     }
-
     .pill{
       display:inline-flex;
       align-items:center;
@@ -285,11 +293,9 @@
     }
     .pill .k{ color: var(--blue); }
     .pill .v{ color: var(--text); }
-
     .body{
       padding: 14px 16px 16px;
     }
-
     .kv{
       display:grid;
       grid-template-columns: 260px 1fr;
@@ -299,7 +305,6 @@
     @media (max-width: 820px){
       .kv{ grid-template-columns: 1fr; }
     }
-
     .key{
       font-family: var(--mono);
       font-size: 13px;
@@ -309,18 +314,12 @@
       align-items:center;
       gap:10px;
     }
-    .path{
-      color: var(--blue);
-      font-size: 12px;
-      font-family: var(--mono);
-    }
     .val{
       font-family: var(--mono);
       font-size: 13px;
       color: var(--text);
       word-break: break-word;
     }
-
     .node{
       border:1px solid rgba(42,47,69,0.85);
       background: rgba(15,17,26,0.35);
@@ -328,7 +327,6 @@
       padding: 10px 12px;
     }
     .node + .node{ margin-top: 10px; }
-
     details{
       border:1px solid rgba(42,47,69,0.75);
       background: rgba(15,17,26,0.28);
@@ -336,7 +334,6 @@
       padding: 10px 12px;
     }
     details + details{ margin-top: 10px; }
-
     summary{
       cursor:pointer;
       list-style:none;
@@ -348,7 +345,6 @@
       font-family: var(--mono);
     }
     summary::-webkit-details-marker{ display:none; }
-
     .sum-left{
       display:flex;
       align-items:center;
@@ -367,7 +363,6 @@
       flex: 0 0 auto;
     }
     details[open] .caret{ transform: rotate(45deg); }
-
     .sum-title{
       color: var(--pink);
       overflow:hidden;
@@ -376,7 +371,6 @@
       max-width: 520px;
     }
     .sum-meta{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
-
     .badge{
       display:inline-flex;
       align-items:center;
@@ -397,13 +391,11 @@
     .b-null{ color: var(--muted); }
     .b-date{ color: var(--purple); }
     .b-err{ color: var(--red); border-color: rgba(255,85,85,0.55); }
-
     .muted{ color: var(--muted); }
     .italic{ font-style: italic; }
     .text{ color: var(--yellow); }
     a.link{ color: var(--cyan); text-decoration:none; }
     a.link:hover{ text-decoration: underline; }
-
     pre.raw{
       margin:0;
       white-space: pre-wrap;
@@ -418,15 +410,6 @@
       max-height: 60vh;
       overflow:auto;
     }
-
-    .hint{
-      font-size: 12px;
-      color: var(--muted);
-      font-family: var(--mono);
-      margin-top: 10px;
-      opacity:0.95;
-    }
-
     .hidden{ display:none !important; }
     .hit{ outline: 2px solid rgba(139,233,253,0.55); box-shadow: 0 0 0 4px rgba(139,233,253,0.12); border-radius: 10px; }
   </style>
@@ -438,11 +421,10 @@
           <h1>🧪 API Visualizer <span class="badge b-obj">Dracula</span></h1>
           <div class="sub">{{meta.method}} {{meta.url}} · <span class="muted">{{meta.contentType}}</span></div>
         </div>
-
         <div class="controls">
           <div class="search">
             <span class="muted">🔎</span>
-            <input id="searchInput" placeholder="Search keys/values… (e.g. user.id, status=200, 'john')" />
+            <input id="searchInput" placeholder="Search keys/values…" />
           </div>
           <button class="btn" id="expandAll">Expand all</button>
           <button class="btn" id="collapseAll">Collapse all</button>
@@ -464,15 +446,11 @@
         </div>
         <div class="body">
           {{#if meta.jsonOk}}
-            <div id="treeRoot">
-              {{{htmlTree}}}
-            </div>
+            <div id="treeRoot">{{{htmlTree}}}</div>
           {{else}}
             <div class="node">
               <div class="key"><span class="badge b-err">Not JSON</span> <span class="muted">{{meta.parseError}}</span></div>
-              <div style="margin-top:10px;">
-                <pre class="raw">{{meta.raw}}</pre>
-              </div>
+              <div style="margin-top:10px;"><pre class="raw">{{meta.raw}}</pre></div>
             </div>
           {{/if}}
         </div>
@@ -482,13 +460,9 @@
       <div class="card">
         <div class="card-head">
           <h2 class="card-title">📄 Raw (pretty)</h2>
-          <div class="summary">
-            <span class="pill"><span class="k">Hint</span> <span class="v">CTRL/⌘+F</span></span>
-          </div>
+          <div class="summary"><span class="pill"><span class="k">Hint</span> <span class="v">CTRL/⌘+F</span></span></div>
         </div>
-        <div class="body">
-          <pre class="raw">{{meta.pretty}}</pre>
-        </div>
+        <div class="body"><pre class="raw">{{meta.pretty}}</pre></div>
       </div>
       {{/if}}
     </div>
@@ -514,7 +488,6 @@
         q = (q || '').trim().toLowerCase();
         if(!q) return;
 
-        // mark nodes that contain text match
         const nodes = document.querySelectorAll('[data-search]');
         let any = false;
 
@@ -523,25 +496,19 @@
           if(hay.includes(q)){
             any = true;
             n.classList.add('hit');
-
-            // ensure all parents expanded
             let p = n.parentElement;
             while(p){
               if(p.tagName === 'DETAILS') p.open = true;
               p = p.parentElement;
             }
           } else {
-            // hide non matching leaf nodes (but not containers)
             if(n.getAttribute('data-leaf') === '1'){
               n.classList.add('hidden');
             }
           }
         });
 
-        // if nothing found, do nothing special
-        if(!any) {
-          clearHits();
-        }
+        if(!any) clearHits();
       }
 
       if(expandBtn) expandBtn.addEventListener('click', () => setAll(true));
@@ -557,157 +524,80 @@
     })();
   </script>
   `;
-  function displayLabel(path) {
-    if (path === "$") return "root";
-  
- 
-    let p = path.startsWith("$.") ? path.slice(2) : path.startsWith("$") ? path.slice(1) : path;
-    const tokens = [];
-    let buf = "";
-  
-    for (let i = 0; i < p.length; i++) {
-      const ch = p[i];
-  
-      if (ch === ".") {
-        if (buf) { tokens.push(buf); buf = ""; }
-        continue;
-      }
-  
-      if (ch === "[") {
-        if (buf) { tokens.push(buf); buf = ""; }
-        let j = i;
-        let br = "";
-        while (j < p.length && p[j] !== "]") { br += p[j]; j++; }
-        if (j < p.length) br += "]";
-        tokens.push(br);
-        i = j;
-        continue;
-      }
-  
-      buf += ch;
-    }
-  
-    if (buf) tokens.push(buf);
-  
-    const last = tokens[tokens.length - 1] || "root";
-  
 
-    return last;
-  }
+  function renderTree(value, path, depth, maxDepth, maxArrayItems) {
+    const t = typeOf(value);
+    const label = displayLabel(path);
 
- function renderTree(value, path, depth, maxDepth, maxArrayItems) {
-  const t = typeOf(value);
-  const label = displayLabel(path);
-
-  // stop runaway
-  if (depth > maxDepth) {
-    return `
-      <div class="node" data-search="${escapeHtml(path)}" data-leaf="1">
-        <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)} <span class="badge b-err">maxDepth</span></div>
-        <div class="val"><span class="muted italic">Depth limit reached</span></div>
-      </div>`;
-  }
-
-  // Leaf node
-  if (t !== "object" && t !== "array") {
-    const fv = formatValue(value);
-    const search = `${path} ${t} ${fv.raw}`;
-
-    return `
-      <div class="node" data-search="${escapeHtml(search)}" data-leaf="1">
-        <div class="kv">
-          <div class="key" title="${escapeHtml(path)}">
-            ${escapeHtml(label)}
-            <span class="badge b-${t === "string" ? "str" : t === "null" ? "null" : t === "boolean" ? "bool" : t === "number" ? "num" : t === "date" ? "date" : "obj"}">${escapeHtml(t)}</span>
-          </div>
-          <div class="val">${fv.html}</div>
-        </div>
-      </div>`;
-  }
-
-  // Array
-  if (t === "array") {
-    const len = value.length;
-    const title = (path === "$") ? `root [${len}]` : `${label} [${len}]`;
-
-    let childrenHtml = "";
-    const limit = Math.min(len, maxArrayItems);
-
-    for (let i = 0; i < limit; i++) {
-      const childPath = `${path}[${i}]`;
-      childrenHtml += renderTree(value[i], childPath, depth + 1, maxDepth, maxArrayItems);
-    }
-
-    if (len > limit) {
-      childrenHtml += `
+    if (depth > maxDepth) {
+      return `
         <div class="node" data-search="${escapeHtml(path)}" data-leaf="1">
-          <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)} <span class="badge b-arr">array</span></div>
-          <div class="val"><span class="muted italic">Showing ${limit}/${len} items (increase maxArrayItems in script)</span></div>
+          <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)} <span class="badge b-err">maxDepth</span></div>
+          <div class="val"><span class="muted italic">Depth limit reached</span></div>
         </div>`;
     }
 
-    const search = `${path} array ${len}`;
+    if (t !== "object" && t !== "array") {
+      const fv = formatValue(value);
+      const search = `${path} ${t} ${fv.raw}`;
+      const cls = (t === "string" ? "str" : t === "null" ? "null" : t === "boolean" ? "bool" : t === "number" ? "num" : t === "date" ? "date" : "obj");
 
-    return `
-      <details data-search="${escapeHtml(search)}">
-        <summary title="${escapeHtml(path)}">
-          <div class="sum-left">
-            <span class="caret"></span>
-            <span class="sum-title">${escapeHtml(title)}</span>
+      return `
+        <div class="node" data-search="${escapeHtml(search)}" data-leaf="1">
+          <div class="kv">
+            <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)} <span class="badge b-${cls}">${escapeHtml(t)}</span></div>
+            <div class="val">${fv.html}</div>
           </div>
-          <div class="sum-meta">
-            <span class="badge b-arr">array</span>
-            <span class="badge">${len} items</span>
+        </div>`;
+    }
+
+    if (t === "array") {
+      const len = value.length;
+      const title = (path === "$") ? `root [${len}]` : `${label} [${len}]`;
+
+      let childrenHtml = "";
+      const limit = Math.min(len, maxArrayItems);
+
+      for (let i = 0; i < limit; i++) {
+        const childPath = `${path}[${i}]`;
+        childrenHtml += renderTree(value[i], childPath, depth + 1, maxDepth, maxArrayItems);
+      }
+
+      if (len > limit) {
+        childrenHtml += `
+          <div class="node" data-search="${escapeHtml(path)}" data-leaf="1">
+            <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)} <span class="badge b-arr">array</span></div>
+            <div class="val"><span class="muted italic">Showing ${limit}/${len} items</span></div>
+          </div>`;
+      }
+
+      const search = `${path} array ${len}`;
+
+      return `
+        <details data-search="${escapeHtml(search)}">
+          <summary title="${escapeHtml(path)}">
+            <div class="sum-left">
+              <span class="caret"></span>
+              <span class="sum-title">${escapeHtml(title)}</span>
+            </div>
+            <div class="sum-meta">
+              <span class="badge b-arr">array</span>
+              <span class="badge">${len} items</span>
+            </div>
+          </summary>
+          <div style="margin-top:10px;">
+            ${childrenHtml || `
+              <div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1">
+                <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)}</div>
+                <div class="val"><span class="muted italic">Empty array</span></div>
+              </div>`}
           </div>
-        </summary>
-        <div style="margin-top:10px;">
-          ${childrenHtml || `
-            <div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1">
-              <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)}</div>
-              <div class="val"><span class="muted italic">Empty array</span></div>
-            </div>`}
-        </div>
-      </details>`;
-  }
+        </details>`;
+    }
 
-  // Object
-  const keys = Object.keys(value);
-  const title = (path === "$") ? `root {${keys.length}}` : `${label} {${keys.length}}`;
-
-  let childrenHtml = "";
-  for (const k of keys) {
-    const childPath = path === "$" ? `$.${k}` : `${path}.${k}`;
-    childrenHtml += renderTree(value[k], childPath, depth + 1, maxDepth, maxArrayItems);
-  }
-
-  const search = `${path} object ${keys.join(" ")}`;
-
-  return `
-    <details data-search="${escapeHtml(search)}" open>
-      <summary title="${escapeHtml(path)}">
-        <div class="sum-left">
-          <span class="caret"></span>
-          <span class="sum-title">${escapeHtml(title)}</span>
-        </div>
-        <div class="sum-meta">
-          <span class="badge b-obj">object</span>
-          <span class="badge">${keys.length} keys</span>
-        </div>
-      </summary>
-      <div style="margin-top:10px;">
-        ${childrenHtml || `
-          <div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1">
-            <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)}</div>
-            <div class="val"><span class="muted italic">Empty object</span></div>
-          </div>`}
-      </div>
-    </details>`;
-}
-
-
-    // object
     const keys = Object.keys(value);
-    const title = `${path} {${keys.length}}`;
+    const title = (path === "$") ? `root {${keys.length}}` : `${label} {${keys.length}}`;
+
     let childrenHtml = "";
     for (const k of keys) {
       const childPath = path === "$" ? `$.${k}` : `${path}.${k}`;
@@ -715,9 +605,10 @@
     }
 
     const search = `${path} object ${keys.join(" ")}`;
+
     return `
       <details data-search="${escapeHtml(search)}" open>
-        <summary>
+        <summary title="${escapeHtml(path)}">
           <div class="sum-left">
             <span class="caret"></span>
             <span class="sum-title">${escapeHtml(title)}</span>
@@ -728,7 +619,11 @@
           </div>
         </summary>
         <div style="margin-top:10px;">
-          ${childrenHtml || `<div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1"><div class="key">${escapeHtml(path)}</div><div class="val"><span class="muted italic">Empty object</span></div></div>`}
+          ${childrenHtml || `
+            <div class="node" data-search="${escapeHtml(path)} empty" data-leaf="1">
+              <div class="key" title="${escapeHtml(path)}">${escapeHtml(label)}</div>
+              <div class="val"><span class="muted italic">Empty object</span></div>
+            </div>`}
         </div>
       </details>`;
   }
@@ -757,12 +652,7 @@
     const maxDepth = 12;
     const maxArrayItems = 200;
     htmlTree = renderTree(parsed.json, "$", 0, maxDepth, maxArrayItems);
-
-    try {
-      meta.pretty = JSON.stringify(parsed.json, null, 2);
-    } catch (e) {
-      meta.pretty = String(parsed.raw || "");
-    }
+    try { meta.pretty = JSON.stringify(parsed.json, null, 2); } catch (e) { meta.pretty = String(parsed.raw || ""); }
   }
 
   pm.visualizer.set(template, { meta, htmlTree });
