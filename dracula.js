@@ -483,7 +483,7 @@
         <div class="card-head">
           <h2 class="card-title">📄 Raw (pretty)</h2>
           <div class="summary">
-            <span class="pill"><span class="k">Hint</span> <span class="v">CTRL/⌘+F działa też tutaj</span></span>
+            <span class="pill"><span class="k">Hint</span> <span class="v">CTRL/⌘+F</span></span>
           </div>
         </div>
         <div class="body">
