@@ -152,20 +152,14 @@
           const form = b.urlencoded.map(p => encodeURIComponent(p.key) + "=" + encodeURIComponent(p.value)).join("&");
           parts.push("--data", quoteCurl(form));
         } else if (b.mode === "formdata" && Array.isArray(b.formdata) && b.formdata.length) {
-          b.formdata.forEach(p => {
-            if (p && p.key) parts.push("-F", quoteCurl(p.key + "=" + (p.value || "")));
-          });
+          b.formdata.forEach(p => { if (p && p.key) parts.push("-F", quoteCurl(p.key + "=" + (p.value || ""))); });
         }
       }
       return parts.join(" ");
-    } catch (e) {
-      return "";
-    }
+    } catch (e) { return ""; }
   }
-  function headersAllSafe(hdrs) {
-    try { return hdrs && hdrs.all ? hdrs.all() : []; } catch (e) { return []; }
-  }
-  function renderHeadersTable(title, rows) {
+  function headersAllSafe(hdrs) { try { return hdrs && hdrs.all ? hdrs.all() : []; } catch (e) { return []; } }
+  function renderHeadersTable(title, rows, tableKey) {
     const body = (rows || []).map(r => {
       const k = escapeHtml(r.key || r.name || "");
       const v = escapeHtml(r.value || "");
@@ -184,13 +178,13 @@
           <div class="tableBar">
             <div class="search mini">
               <span class="muted">🔎</span>
-              <input class="viewSearch" data-target="headers" placeholder="Search headers…" />
+              <input class="viewSearch" data-target="${escapeHtml(tableKey)}" placeholder="Search…" />
             </div>
           </div>
           <div class="tableWrap">
             <table class="table">
               <thead><tr><th class="th">Key</th><th class="th">Value</th></tr></thead>
-              <tbody id="headersTbody">${body || `<tr><td class="td muted" colspan="2">No headers</td></tr>`}</tbody>
+              <tbody id="${escapeHtml(tableKey)}Tbody">${body || `<tr><td class="td muted" colspan="2">No data</td></tr>`}</tbody>
             </table>
           </div>
         </div>
@@ -212,18 +206,14 @@
       if (!isPlainObject(r)) continue;
       Object.keys(r).forEach(k => { freq[k] = (freq[k] || 0) + 1; });
     }
-    return Object.keys(freq)
-      .sort((a, b) => (freq[b] - freq[a]) || a.localeCompare(b))
-      .slice(0, maxCols);
+    return Object.keys(freq).sort((a, b) => (freq[b] - freq[a]) || a.localeCompare(b)).slice(0, maxCols);
   }
   function safeInspectJson(val, limitChars) {
     try {
       const s = JSON.stringify(val, null, 2);
       if (s.length <= limitChars) return s;
       return s.slice(0, limitChars) + "\n…(truncated)…";
-    } catch (e) {
-      return String(val);
-    }
+    } catch (e) { return String(val); }
   }
   function renderObjectTable(tableId, title, rows, totalCount, truncated) {
     const cols = collectColumns(rows, 12);
@@ -235,7 +225,7 @@
         const path = `${title}[${idx}].${c}`;
         if (vt === "object" || vt === "array") {
           const badge = vt === "array" ? `Array(${(v || []).length})` : "Object";
-          const inspect = escapeHtml(safeInspectJson(v, 7000));
+          const inspect = escapeHtml(safeInspectJson(v, 9000));
           return `<td class="td"><span class="cell inspect" data-inspect="${inspect}" data-title="${escapeHtml(path)}"><span class="badge ${vt === "array" ? "b-arr" : "b-obj"}">${escapeHtml(badge)}</span></span></td>`;
         }
         const fv = formatValue(v);
@@ -418,6 +408,19 @@
   const respStatus = pm.response.status;
 
   const respSizeBytes = (typeof pm.response.size === "function" ? (pm.response.size().body || 0) : 0);
+
+  let reqBodyMode = "";
+  let reqBodyText = "";
+  try {
+    if (pm.request && pm.request.body) {
+      reqBodyMode = pm.request.body.mode || "";
+      const b = pm.request.body;
+      if (b.mode === "raw") reqBodyText = typeof b.raw === "string" ? b.raw : "";
+      else if (b.mode === "urlencoded" && Array.isArray(b.urlencoded)) reqBodyText = b.urlencoded.map(p => (p.key || "") + "=" + (p.value || "")).join("\n");
+      else if (b.mode === "formdata" && Array.isArray(b.formdata)) reqBodyText = b.formdata.map(p => (p.key || "") + "=" + (p.value || "")).join("\n");
+    }
+  } catch (e) {}
+
   const meta = {
     jsonOk: parsed.ok,
     name: reqName,
@@ -434,7 +437,9 @@
     rootType: parsed.ok ? typeOf(parsed.json) : "text",
     nodes: parsed.ok ? countNodes(parsed.json) : 0,
     pretty: "",
-    curl: buildCurl()
+    curl: buildCurl(),
+    reqBodyMode: reqBodyMode,
+    reqBodyText: reqBodyText
   };
 
   let htmlTree = "";
@@ -449,7 +454,6 @@
 
     const tableRowLimit = 500;
     const tables = [];
-
     if (Array.isArray(parsed.json) && isArrayOfObjects(parsed.json)) {
       const rows = parsed.json.slice(0, tableRowLimit);
       tables.push({ id: "root", title: "root", rows, total: parsed.json.length, truncated: parsed.json.length > tableRowLimit });
@@ -465,7 +469,6 @@
         }
       }
     }
-
     if (tables.length) {
       hasTables = true;
       htmlTables = tables.map(t => renderObjectTable(t.id, t.title, t.rows, t.total, t.truncated)).join("");
@@ -474,19 +477,9 @@
 
   const respHeaders = headersAllSafe(pm.response.headers);
   const reqHeaders = headersAllSafe(pm.request && pm.request.headers);
-  const reqBody = (function () {
-    try {
-      if (!pm.request || !pm.request.body) return "";
-      const b = pm.request.body;
-      if (b.mode === "raw") return typeof b.raw === "string" ? b.raw : "";
-      if (b.mode === "urlencoded" && Array.isArray(b.urlencoded)) return b.urlencoded.map(p => (p.key || "") + "=" + (p.value || "")).join("\n");
-      if (b.mode === "formdata" && Array.isArray(b.formdata)) return b.formdata.map(p => (p.key || "") + "=" + (p.value || "")).join("\n");
-      return "";
-    } catch (e) { return ""; }
-  })();
 
-  const htmlRespHeaders = renderHeadersTable("🧾 Response Headers", respHeaders);
-  const htmlReqHeaders = renderHeadersTable("📤 Request Headers", reqHeaders);
+  const htmlRespHeaders = renderHeadersTable("🧾 Response Headers", respHeaders, "respHeaders");
+  const htmlReqHeaders = renderHeadersTable("📤 Request Headers", reqHeaders, "reqHeaders");
 
   const template = `
   <style>
@@ -599,7 +592,7 @@
       transform: rotate(-45deg); transition: 120ms ease; margin-right: 2px; opacity:0.9; flex: 0 0 auto;
     }
     details[open] .caret{ transform: rotate(45deg); }
-    .sum-title{ color: var(--pink); overflow:hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 680px; }
+    .sum-title{ color: var(--pink); overflow:hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 720px; }
     .sum-meta{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
     .badge{
       display:inline-flex; align-items:center; padding: 3px 8px; border-radius: 999px;
@@ -707,11 +700,11 @@
 
         <div class="controls">
           <div class="tabs" id="tabs">
-            <button class="tab active" data-view="tree">Tree</button>
-            {{#if meta.hasTables}}<button class="tab" data-view="table">Table</button>{{/if}}
-            <button class="tab" data-view="headers">Headers</button>
-            <button class="tab" data-view="request">Request</button>
-            <button class="tab" data-view="raw">Raw</button>
+            <button class="tab active" data-view="tree" type="button">Tree</button>
+            <button class="tab" data-view="table" type="button">Table</button>
+            <button class="tab" data-view="headers" type="button">Headers</button>
+            <button class="tab" data-view="request" type="button">Request</button>
+            <button class="tab" data-view="raw" type="button">Raw</button>
           </div>
 
           <div class="search">
@@ -719,11 +712,11 @@
             <input id="globalSearch" placeholder="Search (current view)…  Ctrl+K" />
           </div>
 
-          <button class="btn" id="togglePaths">Paths</button>
-          <button class="btn" id="copyJson">Copy JSON</button>
-          <button class="btn" id="copyCurl">Copy cURL</button>
-          <button class="btn" id="expandAll">Expand</button>
-          <button class="btn" id="collapseAll">Collapse</button>
+          <button class="btn" id="togglePaths" type="button">Paths</button>
+          <button class="btn" id="copyJson" type="button">Copy JSON</button>
+          <button class="btn" id="copyCurl" type="button">Copy cURL</button>
+          <button class="btn" id="expandAll" type="button">Expand</button>
+          <button class="btn" id="collapseAll" type="button">Collapse</button>
         </div>
       </div>
     </div>
@@ -750,18 +743,33 @@
         </div>
       </div>
 
-      {{#if meta.hasTables}}
       <div id="view_table" class="view hidden">
-        {{{htmlTables}}}
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title">📊 Tables</h2>
+            <div class="summary">
+              <span class="pill"><span class="k">Detected</span> <span class="v">{{meta.tablesCount}}</span></span>
+            </div>
+          </div>
+          <div class="body">
+            {{#if meta.hasTables}}
+              {{{htmlTables}}}
+            {{else}}
+              <div class="node">
+                <div class="key"><span class="badge b-err">No tables</span> <span class="muted">No array-of-objects found at root or first-level keys.</span></div>
+                <div class="val"><span class="muted italic">Tip: Table view triggers when payload contains an array of objects.</span></div>
+              </div>
+            {{/if}}
+          </div>
+        </div>
       </div>
-      {{/if}}
 
       <div id="view_headers" class="view hidden">
-        {{{htmlRespHeaders}}}
+        ${htmlRespHeaders}
       </div>
 
       <div id="view_request" class="view hidden">
-        {{{htmlReqHeaders}}}
+        ${htmlReqHeaders}
         <div class="card">
           <div class="card-head">
             <h2 class="card-title">🧩 Request Body</h2>
@@ -770,13 +778,12 @@
             </div>
           </div>
           <div class="body">
-            <pre class="raw" id="reqBody">{{meta.reqBody}}</pre>
+            <pre class="raw" id="reqBody"></pre>
           </div>
         </div>
         <div class="card">
           <div class="card-head">
             <h2 class="card-title">🧷 cURL</h2>
-            <div class="summary"><span class="pill"><span class="k">Copy</span> <span class="v">button</span></span></div>
           </div>
           <div class="body">
             <pre class="raw" id="curlText">{{meta.curl}}</pre>
@@ -807,8 +814,8 @@
       <div class="modalHead">
         <div id="modalTitle">Inspect</div>
         <div style="display:flex; gap:8px; align-items:center;">
-          <button class="btn small" id="modalCopy">Copy</button>
-          <button class="btn small" id="modalClose">Close</button>
+          <button class="btn small" id="modalCopy" type="button">Copy</button>
+          <button class="btn small" id="modalClose" type="button">Close</button>
         </div>
       </div>
       <div style="padding: 14px;">
@@ -821,16 +828,9 @@
 
   <script>
     (function(){
-      const hasTables = {{meta.hasTables}};
-      const reqBodyMode = {{meta.reqBodyModeJson}};
-      const reqBody = {{meta.reqBodyJson}};
-      const setText = (id, txt) => { const el = document.getElementById(id); if(el) el.textContent = txt || ""; };
-
-      setText("reqBody", reqBody);
-      const mb = document.getElementById("curlText");
-      const cb = document.getElementById("reqBody");
-      if (mb && !mb.textContent.trim()) mb.textContent = "";
-      if (cb && !cb.textContent.trim()) cb.textContent = "";
+      const HAS_TABLES = ${JSON.stringify(!!hasTables)};
+      const TABLES_COUNT = ${JSON.stringify(hasTables ? (htmlTables ? (htmlTables.match(/data-tableid=/g) || []).length : 0) : 0)};
+      const REQ_BODY = ${JSON.stringify(meta.reqBodyText || "")};
 
       const tabs = document.getElementById("tabs");
       const search = document.getElementById("globalSearch");
@@ -885,6 +885,7 @@
       function clearHighlights(){
         document.querySelectorAll(".hit").forEach(el => el.classList.remove("hit"));
         document.querySelectorAll("[data-search].hidden").forEach(el => el.classList.remove("hidden"));
+        document.querySelectorAll("tr.hidden").forEach(el => {});
       }
 
       function activeViewName(){
@@ -928,8 +929,8 @@
         });
       }
 
-      function filterHeaders(q){
-        const tbody = document.getElementById("headersTbody");
+      function filterTbody(tbodyId, q){
+        const tbody = document.getElementById(tbodyId);
         if(!tbody) return;
         q = (q || "").trim().toLowerCase();
         const rows = tbody.querySelectorAll("tr[data-search]");
@@ -976,7 +977,8 @@
       function filterCurrentView(q){
         const view = activeViewName();
         if(view === "tree") filterTree(q);
-        else if(view === "headers") filterHeaders(q);
+        else if(view === "headers") filterTbody("respHeadersTbody", q);
+        else if(view === "request") filterTbody("reqHeadersTbody", q);
         else if(view === "table") {
           document.querySelectorAll(".tableCard").forEach(card => {
             const id = card.getAttribute("data-tableid");
@@ -993,7 +995,7 @@
           const btn = e.target.closest(".tab");
           if(!btn) return;
           const v = btn.dataset.view;
-          if(v === "table" && !hasTables) return;
+          if(v === "table" && !HAS_TABLES){ showToast("No tables detected"); return; }
           setView(v);
         });
       }
@@ -1031,6 +1033,9 @@
         });
       }
 
+      const reqBodyEl = document.getElementById("reqBody");
+      if(reqBodyEl) reqBodyEl.textContent = REQ_BODY;
+
       document.addEventListener("keydown", (e) => {
         if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k"){
           e.preventDefault();
@@ -1045,6 +1050,7 @@
           if(search && search.value){
             search.value = "";
             clearHighlights();
+            filterCurrentView("");
           }
         }
       });
@@ -1110,7 +1116,7 @@
         });
       });
 
-      if(hasTables){
+      if(HAS_TABLES){
         document.querySelectorAll(".tableCard").forEach(card => {
           const id = card.getAttribute("data-tableid");
           paginateTable(id);
@@ -1122,16 +1128,11 @@
 
   const payload = {
     meta: Object.assign({}, meta, {
-      hasTables: hasTables,
-      reqBodyMode: (pm.request && pm.request.body && pm.request.body.mode) ? pm.request.body.mode : "",
-      reqBody: reqBody || "",
-      reqBodyModeJson: JSON.stringify((pm.request && pm.request.body && pm.request.body.mode) ? pm.request.body.mode : ""),
-      reqBodyJson: JSON.stringify(reqBody || "")
+      hasTables: !!hasTables,
+      tablesCount: hasTables ? (htmlTables ? (htmlTables.match(/data-tableid=/g) || []).length : 0) : 0
     }),
-    htmlTree,
-    htmlTables,
-    htmlRespHeaders,
-    htmlReqHeaders
+    htmlTree: htmlTree,
+    htmlTables: htmlTables
   };
 
   pm.visualizer.set(template, payload);
